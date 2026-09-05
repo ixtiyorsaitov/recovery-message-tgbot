@@ -17,16 +17,23 @@ import { sendDeletedMessageAlert, isBotSentMessage, getBotUserId } from "./bot";
 /**
  * Register all event handlers on the client.
  */
-export function registerHandlers(
+export async function registerHandlers(
   client: TelegramClient,
   cache: MessageCache,
   targetChatId: number | string
-): void {
+): Promise<void> {
+  // Get own ID once to filter Saved Messages
+  const me = await client.getMe();
+  const myId = typeof me.id === "object" && "toJSNumber" in me.id
+    ? (me.id as bigInt.BigInteger).toJSNumber()
+    : Number(me.id);
+  console.log(`🔑 Own user ID: ${myId} (for Saved Messages filtering)`);
+
   // ── NewMessage: cache incoming DMs ──────────────────────
   client.addEventHandler(
     async (event: NewMessageEvent) => {
       try {
-        await handleNewMessage(client, cache, event);
+        await handleNewMessage(client, cache, event, myId);
       } catch (err) {
         console.error("⚠️  Error in NewMessage handler:", err);
       }
@@ -56,7 +63,8 @@ export function registerHandlers(
 async function handleNewMessage(
   client: TelegramClient,
   cache: MessageCache,
-  event: NewMessageEvent
+  event: NewMessageEvent,
+  myId: number
 ): Promise<void> {
   const msg = event.message;
 
@@ -76,6 +84,7 @@ async function handleNewMessage(
   if (botId && senderId === botId) return;
 
   // Fetch sender info — try message.getSender() first, then getEntity()
+  let isBot = false;
   let username: string | undefined;
   let firstName: string | undefined;
   let lastName: string | undefined;
@@ -84,6 +93,7 @@ async function handleNewMessage(
     const sender = await msg.getSender();
     if (sender && "firstName" in sender) {
       const u = sender as Api.User;
+      isBot = !!u.bot;
       username = u.username;
       firstName = u.firstName;
       lastName = u.lastName;
@@ -93,6 +103,7 @@ async function handleNewMessage(
     try {
       const sender = await client.getEntity(senderId);
       if (sender instanceof Api.User) {
+        isBot = !!sender.bot;
         username = sender.username;
         firstName = sender.firstName;
         lastName = sender.lastName;
@@ -100,6 +111,18 @@ async function handleNewMessage(
     } catch {
       // Both failed — cache without name
     }
+  }
+
+  // Skip messages from Telegram bots
+  if (isBot) {
+    console.log(`🤖 Skipped bot message from ${username || senderId}`);
+    return;
+  }
+
+  // Skip Saved Messages (messages to yourself)
+  if (senderId === myId) {
+    console.log(`💾 Skipped Saved Messages`);
+    return;
   }
 
   const mediaType = detectMediaType(msg);

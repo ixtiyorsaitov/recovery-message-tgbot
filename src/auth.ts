@@ -11,8 +11,8 @@ import { Api } from "telegram/tl";
 const input: { text: (prompt: string) => Promise<string> } = require("input");
 
 const DEVICE_OPTIONS = {
-  deviceModel: "Userbot Desktop",
-  systemVersion: "Windows 10",
+  deviceModel: "Linux Server",
+  systemVersion: "Ubuntu 22.04",
   appVersion: "1.0.0",
   langCode: "en",
 };
@@ -39,9 +39,15 @@ export async function createClient(): Promise<TelegramClient> {
 
   const client = new TelegramClient(session, apiId, apiHash, {
     ...DEVICE_OPTIONS,
-    connectionRetries: 5,
-    retryDelay: 2000,
+    connectionRetries: 15,
+    retryDelay: 5000,
     autoReconnect: true,
+    useIPV6: false,
+    timeout: 120000,
+    requestRetries: 10,
+    downloadRetries: 3,
+    useWSS: false,
+    testServers: false,
   });
 
   console.log("🔑 Authenticating with Telegram...");

@@ -11,6 +11,7 @@ import { MessageCache } from "./cache";
 import { createClient } from "./auth";
 import { registerHandlers } from "./handlers";
 import { initBot } from "./bot";
+import { TelegramClient } from "telegram";
 
 // ── Environment validation ────────────────────────────────
 
@@ -37,6 +38,30 @@ function validateEnv(): void {
         "   Create a bot via @BotFather on Telegram and paste the token."
     );
   }
+}
+
+// ── Connect with retry ────────────────────────────────────
+
+async function connectWithRetry(
+  client: TelegramClient,
+  maxRetries = 10
+): Promise<void> {
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      console.log(`🔌 Connecting to Telegram (attempt ${attempt}/${maxRetries})...`);
+      await client.connect();
+      console.log("✅ Connected successfully!");
+      return;
+    } catch (err) {
+      console.error(`❌ Connection attempt ${attempt} failed:`, (err as Error).message);
+      if (attempt < maxRetries) {
+        const delay = Math.min(attempt * 5000, 30000); // progressive backoff, max 30s
+        console.log(`⏳ Retrying in ${delay / 1000}s...`);
+        await new Promise((r) => setTimeout(r, delay));
+      }
+    }
+  }
+  throw new Error("❌ Could not connect to Telegram after all retries.");
 }
 
 // ── Main ──────────────────────────────────────────────────
@@ -76,18 +101,28 @@ async function main(): Promise<void> {
   // Authenticate with Telegram (GramJS)
   const client = await createClient();
 
-  // Register event handlers
-  registerHandlers(client, cache, targetChatId);
+  // Register event handlers (client already connected via createClient)
+  await registerHandlers(client, cache, targetChatId);
 
   console.log(`\n🟢 Userbot is running! Cache size: ${cache.size}`);
   console.log("   Press Ctrl+C to stop.\n");
+
+  // ── Handle disconnections ────────────────────────────────
+  // GramJS fires this when connection drops
+  client.addEventHandler(async () => {
+    console.log("⚠️  Connection lost! Attempting reconnect...");
+  });
 
   // ── Graceful shutdown ─────────────────────────────────
   const shutdown = async () => {
     console.log("\n🔴 Shutting down...");
     cache.stopCleanup();
     bot.stop();
-    await client.disconnect();
+    try {
+      await client.disconnect();
+    } catch {
+      // ignore
+    }
     console.log("👋 Goodbye!");
     process.exit(0);
   };
